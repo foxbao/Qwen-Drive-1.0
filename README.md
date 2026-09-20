@@ -130,7 +130,8 @@ A head is attached when the VLM is loaded:
 
 ```python
 model = QwenDriveForPlanning.from_pretrained(
-    "Qwen-Drive-1.0-4B", planner="Qwen-Drive-1.0-4B/planner-rl", dtype=torch.bfloat16
+    "Qwen-Drive-1.0-4B", planner="Qwen-Drive-1.0-4B/planner-rl", dtype=torch.bfloat16,
+    attn_implementation="sdpa",  # use flash_attention_2 when flash-attn is installed
 )
 ```
 
@@ -166,7 +167,7 @@ truth on the right, and the generated reasoning underneath.
 export PYTHONPATH=src
 python scripts/demo.py --model Qwen-Drive-1.0-4B --planner Qwen-Drive-1.0-4B/planner-rl \
     --scenes data/demo/planning_scenes.jsonl --image-archive data/demo/frames.parquet \
-    --plot demo.png
+    --attn-implementation sdpa --plot demo.png
 ```
 
 ```python
@@ -179,7 +180,7 @@ model = QwenDriveForPlanning.from_pretrained(
     "Qwen-Drive-1.0-4B",
     planner="Qwen-Drive-1.0-4B/planner-rl",
     dtype=torch.bfloat16,
-    attn_implementation="flash_attention_2",
+    attn_implementation="sdpa",
 ).to("cuda").eval()
 
 scene = next(
@@ -205,6 +206,7 @@ runs, multi-GPU evaluation, perception inference and visualization.
 | [docs/model.md](docs/model.md) | architecture, configuration fields, decoding parameters |
 | [docs/data.md](docs/data.md) | scene-file format, obtaining the frames, frame packing |
 | [docs/evaluation.md](docs/evaluation.md) | benchmark protocols, metric definitions, result tables |
+| [docs/training_plan.md](docs/training_plan.md) | staged plan for adding Planning Expert training |
 | [docs/perception.md](docs/perception.md) | perception setup, demo data layout, coordinate conventions |
 
 ## Repository layout

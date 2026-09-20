@@ -146,7 +146,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=None, help="stop after this many scenes")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", default="bfloat16", choices=sorted(DTYPES))
-    parser.add_argument("--attn-implementation", default="flash_attention_2", choices=["sdpa", "flash_attention_2"])
+    parser.add_argument(
+        "--attn-implementation",
+        default="sdpa",
+        choices=["sdpa", "flash_attention_2"],
+        help="attention backend; SDPA works without flash-attn",
+    )
     return parser.parse_args()
 
 

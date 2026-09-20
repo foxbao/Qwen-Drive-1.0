@@ -39,17 +39,31 @@ def main() -> None:
     parser.add_argument("--frames", type=Path, default=Path("data/demo/perception"))
     parser.add_argument("--output", type=Path, default=Path("outputs/perception_demo"))
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--dtype", default="bfloat16")
-    parser.add_argument("--attn-implementation", default="flash_attention_2", choices=["sdpa", "flash_attention_2"])
+    parser.add_argument(
+        "--dtype",
+        default="bfloat16",
+        choices=["bfloat16", "float16", "float32"],
+        help="model dtype; custom CUDA deformable attention requires bfloat16",
+    )
+    parser.add_argument(
+        "--attn-implementation",
+        default="sdpa",
+        choices=["sdpa", "flash_attention_2"],
+        help="attention backend; SDPA works without flash-attn",
+    )
     args = parser.parse_args()
 
+    dtype = getattr(torch, args.dtype)
+    if torch.device(args.device).type == "cuda" and dtype != torch.bfloat16:
+        parser.error("--dtype must be bfloat16 for CUDA perception inference")
+
     holder = QwenDriveForPlanning.from_pretrained(
-        args.vlm, dtype=torch.bfloat16, attn_implementation=args.attn_implementation
+        args.vlm, dtype=dtype, attn_implementation=args.attn_implementation
     )
     vlm = holder.vlm
     del holder.planning_expert
 
-    model = QwenDrivePerception.from_pretrained(args.model, dtype=torch.bfloat16)
+    model = QwenDrivePerception.from_pretrained(args.model, dtype=dtype)
     model.to(args.device).eval()
 
     from transformers import AutoTokenizer

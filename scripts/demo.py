@@ -46,6 +46,12 @@ def main() -> None:
     parser.add_argument("--question", default="Describe the traffic scene and the safest action.")
     parser.add_argument("--plot", type=Path, default=None, help="write a trajectory plot here")
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--attn-implementation",
+        default="sdpa",
+        choices=["sdpa", "flash_attention_2"],
+        help="attention backend; SDPA works without flash-attn",
+    )
     args = parser.parse_args()
 
     archive = None
@@ -58,7 +64,7 @@ def main() -> None:
         args.model,
         planner=args.planner,
         dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
+        attn_implementation=args.attn_implementation,
     )
     model = model.to(args.device).eval()
 

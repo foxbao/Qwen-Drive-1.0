@@ -42,15 +42,16 @@ rationale and the trajectories side by side.
 ```bash
 python scripts/demo.py --model Qwen-Drive-1.0-4B --planner Qwen-Drive-1.0-4B/planner-rl \
     --scenes data/demo/planning_scenes.jsonl --image-archive data/demo/frames.parquet \
-    --plot demo.png
+    --attn-implementation sdpa --plot demo.png
 ```
 
 ## Drawing several trajectories per scene
 
 `num_samples=N` draws N trajectories from independent noise in one batched pass. The VLM
 runs once and its cache is shared, only the expert's conditioning is tiled. Sample `k`
-always starts from seed `noise_seed + k`, so a sample is identical whether drawn alone or
-inside a batch.
+starts from seed `noise_seed + k`, so the initial noise is independent of `N`. Complete
+trajectories can differ slightly when bf16 batch kernels use different reduction orders;
+fix the batch size when bitwise comparisons matter.
 
 ```python
 result = model.run(InferenceMode.DIRECT_PLANNING, scene=scene, num_samples=6)

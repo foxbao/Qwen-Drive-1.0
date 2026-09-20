@@ -21,9 +21,10 @@ The perception head lives in its own class, see [perception.md](perception.md).
 
 ## How the expert reads the scene
 
-The VLM caches keys and values at its grouped-query softmax attention layers. The expert
-reads those caches directly through cross-attention, so the scene enters the trajectory
-network without any extra projection.
+The VLM caches keys and values at its grouped-query softmax attention layers. Each expert
+layer performs joint attention: waypoint queries attend to the concatenation of the cached
+scene keys/values and the waypoint keys/values. This lets waypoints read the scene and one
+another in the same attention operation.
 
 ## The expert
 
@@ -92,8 +93,10 @@ x_t+dt = x_t + v * dt
 ```
 
 The floor on the divisor keeps the last step from amplifying prediction error. Sample `k`
-draws its noise from seed `noise_seed + k`, so results are reproducible and a sample is
-identical whether drawn alone or inside a batch.
+draws its initial noise from seed `noise_seed + k`, so the noise is reproducible and
+independent of the requested sample count. Complete trajectories can still differ slightly
+when batch size changes because bf16 kernels may use different reduction orders; fix the
+batch size when bitwise reproducibility is required.
 
 ## VQA decoding
 

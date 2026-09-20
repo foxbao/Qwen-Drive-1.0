@@ -1,0 +1,10 @@
+# Local model weights and generated predictions.
+models/
+outputs/
+
+# Python and local tooling artifacts.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.vscode/

@@ -17,9 +17,11 @@ python scripts/eval_<benchmark>.py --predictions outputs/<split>/predictions.jso
 ## Reported results
 
 `SFT` is the imitation-trained Planning Expert, `RL` the same expert after reward
-optimization. `best-of-6` keeps the highest-scoring of six sampled trajectories. That
-selection uses the ground truth, so it is an upper bound on what inference-time selection
-could reach.
+optimization. `minADE`/`minFDE` select with displacement ground truth and are oracle upper
+bounds. Benchmark `best-of-6` selection is benchmark-specific: Waymo uses preference/rater
+scores and NAVSIM uses the PDM simulator score. These selectors require labels or simulator
+state unavailable to a deployed model, so their reported values are selection upper bounds,
+not ordinary single-sample inference results.
 
 **NAVSIM v1.1 navtest, PDM score**
 
@@ -126,7 +128,8 @@ benchmark publishes the `ADE@3s`, `ADE@5s` and `RFS` keys of the 4 Hz grid, the 
 keys are there for diagnosis.
 
 With several samples per scene, the candidate closest to the highest-rated preference
-trajectory is kept. That uses the rater labels, so it is an oracle bound.
+trajectory is kept. This uses Waymo rater labels and is therefore an oracle-style selection
+bound, distinct from ground-truth `minADE`.
 
 ## NAVSIM v1.1
 
@@ -148,7 +151,8 @@ Both conventions from the table above are reported. The plain field names are th
 path and `_direct10hz` is the native-rate path. The sub-scores are no-at-fault collisions,
 drivable-area compliance, ego progress, time-to-collision, comfort and driving-direction
 compliance, plus the combined `score` (PDMS). With several samples per scene the
-highest-scoring one is kept per convention, which is an oracle bound.
+highest-scoring one is kept per convention. This is a PDM-based selection result, not the
+same oracle as ground-truth `minADE`.
 
 ## Sampling several trajectories
 
