@@ -1,0 +1,12 @@
+# NAVSIM open-loop evaluation configuration.
+#
+# This evaluates a predictions JSONL file. Generate that file first with
+# scripts/run_planning.py, then run scripts/run_navsim_eval.sh.
+
+[evaluation]
+predictions = "/home/baojiali/Downloads/public_code/Qwen-Drive-1.0/outputs/navsim-val-direct/predictions.jsonl"
+output = "/home/baojiali/Downloads/public_code/Qwen-Drive-1.0/outputs/navsim-val-direct"
+
+# Optional official NAVSIM PDM metric cache. Leave this unset for displacement
+# metrics only; the local validation split does not include the official cache.
+# metric_cache = "/path/to/metric_cache_navtest"

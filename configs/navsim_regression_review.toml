@@ -1,0 +1,21 @@
+# Paired NAVSIM validation comparisons. Positive delta means the updated checkpoint
+# has larger (worse) displacement error than its baseline.
+
+[review]
+output = "outputs/navsim-regression-review"
+top_k = 12
+tie_tolerance = 0.000001
+
+[[review.experiments]]
+name = "direct"
+baseline_name = "planner-sft"
+updated_name = "navsim-finetuned"
+baseline = "outputs/navsim-val-sft-baseline/predictions.jsonl"
+updated = "outputs/navsim-val-direct/predictions.jsonl"
+
+[[review.experiments]]
+name = "reasoning"
+baseline_name = "planner-sft-reasoning"
+updated_name = "navsim-finetuned-reasoning"
+baseline = "outputs/navsim-val-reasoning-sft-baseline/predictions.jsonl"
+updated = "outputs/navsim-val-reasoning-finetuned/predictions.jsonl"

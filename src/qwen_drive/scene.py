@@ -321,14 +321,24 @@ class QwenDriveProcessor:
         question: str,
         system: str | None = None,
         device: str | torch.device = "cpu",
+        image_pixel_budget: int | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Encode a free-form question about a list of images."""
+        """Encode a question about images, optionally capping pixels per image.
+
+        The optional budget is useful for multi-image VQA fine-tuning, where training
+        activations scale with the total number of visual tokens.
+        """
+        if image_pixel_budget is not None and image_pixel_budget < self.min_pixels:
+            raise ValueError(
+                f"image_pixel_budget must be >= {self.min_pixels}, got {image_pixel_budget}"
+            )
         frames = [
             image if isinstance(image, CameraFrame) else CameraFrame(image) for image in images
         ]
         patch_list, grids, token_counts = [], [], []
         for frame in frames:
-            patches, (rows, cols) = self._patchify(frame, self.config.current_image_pixels)
+            budget = image_pixel_budget or self.config.current_image_pixels
+            patches, (rows, cols) = self._patchify(frame, budget)
             patch_list.append(patches)
             grids.append((1, rows, cols))
             token_counts.append(rows * cols // self.merge_size**2)

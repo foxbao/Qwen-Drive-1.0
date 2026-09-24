@@ -1,0 +1,54 @@
+# Causal isolation experiment: update only the VLM LoRA from NAVSIM while
+# keeping the already trained Planning Expert fixed. QA datasets are disabled.
+
+[training]
+model = "Qwen-Drive-1.0-4B"
+planner = "Qwen-Drive-1.0-4B/planner-sft"
+output = "outputs/vlm-lora-navsim-only-pilot-200"
+
+max_steps = 200
+learning_rate = 0.00001
+planner_learning_rate = 0.00001
+train_planner = false
+weight_decay = 0.01
+max_grad_norm = 1.0
+gradient_accumulation_steps = 1
+max_target_tokens = 256
+max_sequence_length = 8192
+vqa_image_pixels = 230400
+val_samples_per_task = 16
+eval_every = 100
+seed = 3407
+device = "cuda:0"
+dtype = "bfloat16"
+attn_implementation = "sdpa"
+
+[data]
+navsim_train = "/home/baojiali/Downloads/qwen-drive/datasets/navsim_trainval_v1.1/prepared/navsim_qwen_train_split.jsonl"
+navsim_val = "/home/baojiali/Downloads/qwen-drive/datasets/navsim_trainval_v1.1/prepared/navsim_qwen_val.jsonl"
+navsim_image_root = "/home/baojiali/Downloads/qwen-drive/datasets/navsim_trainval_v1.1"
+
+# These paths remain in the schema because the trainer validates all data sections,
+# but their task weights below are zero and no QA samples are loaded for this run.
+drivelm_annotations = "/home/baojiali/Downloads/qwen-drive/datasets/drivelm_nuscenes/annotations/v1_0_train_nus.json"
+drivelm_validation_fraction = 0.05
+aok_train_annotations = "/home/baojiali/Downloads/qwen-drive/datasets/aokvqa/annotations/aokvqa_v1p0_train.json"
+aok_train_images = "/home/baojiali/Downloads/qwen-drive/datasets/aokvqa/coco_images/train2017"
+aok_val_annotations = "/home/baojiali/Downloads/qwen-drive/datasets/aokvqa/annotations/aokvqa_v1p0_val.json"
+aok_val_images = "/home/baojiali/Downloads/qwen-drive/datasets/aokvqa/coco_images/val2017"
+
+[lora]
+rank = 8
+alpha = 16
+dropout = 0.05
+target_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]
+
+[task_weights]
+navsim = 1.0
+drivelm = 0.0
+aokvqa = 0.0
+
+[loss_weights]
+navsim = 1.0
+drivelm = 1.0
+aokvqa = 1.0

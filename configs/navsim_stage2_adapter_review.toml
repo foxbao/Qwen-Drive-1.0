@@ -1,0 +1,14 @@
+# Compare the Stage 2 pilot against the same NAVSIM-only VLM adapter with the
+# original planner head.
+
+[review]
+output = "outputs/navsim-stage2-adapter-review"
+top_k = 12
+tie_tolerance = 0.000001
+
+[[review.experiments]]
+name = "stage2-vs-stage1-adapter"
+baseline_name = "stage1-adapter-planner-sft"
+updated_name = "stage2-adapter-pilot"
+baseline = "outputs/navsim-val-vlm-lora-navsim-only/predictions.jsonl"
+updated = "outputs/navsim-val-planner-stage2-adapter-pilot-100/predictions.jsonl"

@@ -1,0 +1,31 @@
+# NAVSIM Planning Expert training configuration.
+#
+# The current trainer intentionally uses batch_size = 1 because VLM cache lengths
+# can vary between scenes. Use gradient_accumulation_steps for a larger effective
+# batch without enabling multi-scene cache batching.
+
+[training]
+model = "/home/baojiali/Downloads/public_code/Qwen-Drive-1.0/Qwen-Drive-1.0-4B"
+planner = "/home/baojiali/Downloads/public_code/Qwen-Drive-1.0/Qwen-Drive-1.0-4B/planner-sft"
+scenes = "/home/baojiali/Downloads/qwen-drive/datasets/navsim_trainval_v1.1/prepared/navsim_qwen_train_split.jsonl"
+val_scenes = "/home/baojiali/Downloads/qwen-drive/datasets/navsim_trainval_v1.1/prepared/navsim_qwen_val.jsonl"
+image_root = "/home/baojiali/Downloads/qwen-drive/datasets/navsim_trainval_v1.1"
+val_image_root = "/home/baojiali/Downloads/qwen-drive/datasets/navsim_trainval_v1.1"
+output = "/home/baojiali/Downloads/public_code/Qwen-Drive-1.0/outputs/planner-navsim-epoch1"
+
+epochs = 1
+batch_size = 1
+gradient_accumulation_steps = 1
+learning_rate = 1e-5
+weight_decay = 0.01
+warmup_steps = 0
+max_grad_norm = 1.0
+seed = 3407
+device = "cuda:0"
+dtype = "bfloat16"
+attn_implementation = "sdpa"
+
+# Omit limit and val_limit for the complete train/validation split.
+# limit = 100
+# val_limit = 100
+

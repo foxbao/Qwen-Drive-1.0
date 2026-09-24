@@ -24,6 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 archive = ["pyarrow>=15.0"]
 oss = ["oss2>=2.18"]
+lora = ["peft==0.21.0"]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

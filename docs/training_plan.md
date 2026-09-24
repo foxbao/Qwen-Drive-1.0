@@ -270,31 +270,50 @@ checkpoint 应至少包含：
 
 ### 阶段二：reasoning-conditioned SFT
 
-在 VLM 仍冻结的情况下，使用 reasoning prompt 和生成后的 cache 训练专家。生成文本本身
-不参与梯度，训练目标仍是轨迹 endpoint。需要确认训练数据是否包含与 reasoning prompt
-匹配的文本分布，不能把 DIRECT 和 REASONING cache 混在一起而不记录模式。
+在 VLM 仍冻结的情况下，使用 reasoning prompt，由 VLM 贪心生成 rationale，再用生成后
+的 cache 训练专家。生成文本本身不参与梯度，训练目标仍是轨迹 endpoint；因此它训练的
+是“给定模型自己生成的理由后如何规划”，不是理由文本生成质量。NAVSIM 没有 rationale
+标注，所以这条路径不声称有 reasoning 文本监督。
+
+当前本地 NAVSIM 验证已显示：从 `planner-sft` 初始化的 direct Planning Expert 微调，在
+direct 和 reasoning 两种推理模式下都比原始权重有小幅 open-loop 改善。因此这一步先作为
+一个机制验证和后续可选实验，而不是因为现有结果差而必须重训。训练入口现支持
+`conditioning_mode = "direct" | "reasoning"` 和 `max_reasoning_tokens`；相应配置在
+[`configs/navsim_planner_reasoning_train.toml`](../configs/navsim_planner_reasoning_train.toml)。
+建议先用 `LIMIT=100 VAL_LIMIT=100` 与 direct 模式做等数据 pilot，确认吞吐和指标，再跑
+完整对照。不能把 DIRECT 与 REASONING cache 混在一起而不记录 conditioning mode。
+
+最新 reasoning-conditioned Planner 100/100 pilot 已完成训练和同 100 场景推理，但暂未显示
+收益：ADE 为 0.2747 m，相比原始 reasoning SFT checkpoint 的 0.2689 m 高 0.0058 m；相比
+之前完整 NAVSIM direct-finetuned checkpoint 在 reasoning 模式下的 0.2535 m 高 0.0212 m。
+这是小样本诊断，不是正式结论；先做逐场景回归复查，不建议据此直接扩大 reasoning 训练。
 
 ### 阶段三：VLM 参数高效微调
 
-只对 VLM 的视觉/语言模块加入 LoRA 或其他 adapter，保留专家训练路径。此阶段需要：
+跨 NAVSIM、DriveLM 和 A-OKVQA 的第一版 PEFT LoRA 多任务 trainer、配置、launcher 和数据
+adapters 已实现，且 A800 上的三任务 smoke test 已通过。它走可微 KV cache，而不是冻结 VLM
+的 planner-only prefill；当前只完成机制验收，尚未完成有统计意义的长 pilot、VQA accuracy
+评估或官方 navtest 评测。详细使用说明见
+[`docs/vlm_lora_multitask_training.md`](vlm_lora_multitask_training.md)。
 
-- 移除 VLM prefill 的 `no_grad`；
-- 梯度检查点；
-- 明确哪些 full-attention K/V 参与反向；
-- 评估显存、吞吐和 VLM 能力退化；
-- 同时保留通用 VQA 验证集，防止灾难性遗忘。
+### 阶段四：扩大多任务验证和 RL
 
-### 阶段四：多任务和 RL
-
-感知、VQA 和规划联合训练需要额外的数据、label mapping、任务采样比例和 loss 权重。
+LoRA 多任务代码已能混合规划与两种 VQA 监督，但还需要较长 pilot、任务指标和遗忘评估。
 RL 还需要可重复的 rollout、Waymo preference 或 NAVSIM PDMS reward；在 SFT trainer
 稳定前不建议开始。
 
 ## 10. 已知限制
 
 - 官方 SFT 的时间采样、loss weighting、数据混合比例和增强策略未公开在本仓库中；
-- 当前本地模型目录只有 `planner-rl`，没有 `planner-sft` warm-start 权重；
+- 当前 NAVSIM 微调实验从本机 `Qwen-Drive-1.0-4B/planner-sft` 权重开始；本项目训练流程
+  仍不等于官方完整训练复现；
 - demo 数据不能用于质量结论；
 - 训练结果必须区分 open-loop displacement、oracle `minADE` 和 benchmark-specific
   selector；
 - 训练期间应固定 prompt 原文、图像 resize 和相机顺序，否则无法与发布模型公平比较。
+
+NAVSIM Planning checkpoint 的本地预测生成和验证集指标计算命令见
+[`docs/navsim_training_evaluation.md`](navsim_training_evaluation.md)。
+
+当前各组对照实验、因果隔离结论、资源检查和推荐后续顺序见
+[`docs/experiment_conclusions.md`](experiment_conclusions.md)。

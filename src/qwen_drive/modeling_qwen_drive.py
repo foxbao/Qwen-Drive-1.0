@@ -113,7 +113,13 @@ class QwenDriveForPlanning(PreTrainedModel):
         self.post_init()
 
     @classmethod
-    def from_pretrained(cls, *args, planner: str | Path | None = None, **kwargs):
+    def from_pretrained(
+        cls,
+        *args,
+        planner: str | Path | None = None,
+        lora_adapter: str | Path | None = None,
+        **kwargs,
+    ):
         """Load the VLM, optionally attaching a separately released planner head.
 
         The VLM is shared by every task, so it ships once and each task head
@@ -130,6 +136,8 @@ class QwenDriveForPlanning(PreTrainedModel):
             transformers_logging.set_verbosity(verbosity)
         if planner is not None:
             model.load_planner(planner)
+        if lora_adapter is not None:
+            model.load_lora_adapter(lora_adapter)
         return model
 
     def load_planner(self, path: str | Path) -> None:
@@ -144,6 +152,12 @@ class QwenDriveForPlanning(PreTrainedModel):
             {k: v.to(target) for k, v in weights.items()}, strict=True
         )
 
+    def load_lora_adapter(self, path: str | Path, *, is_trainable: bool = False) -> None:
+        """Attach a PEFT LoRA adapter to the VLM, leaving the base weights untouched."""
+        from .lora import load_lora_adapter
+
+        self.vlm = load_lora_adapter(self.vlm, path, is_trainable=is_trainable)
+
     def trajectory_scale(self, device: torch.device | None = None) -> torch.Tensor:
         """Per-channel normalization constants, in metres and radians."""
         return torch.tensor(self.config.trajectory_scale, dtype=torch.float32, device=device)
@@ -156,7 +170,20 @@ class QwenDriveForPlanning(PreTrainedModel):
 
     def _rope_positions(self, input_ids: torch.Tensor, image_grid_thw: torch.Tensor) -> torch.Tensor:
         """Multimodal rotary positions ``[3, B, S]`` for a prompt."""
-        positions, _ = self.vlm.model.get_rope_index(
+        # PEFT wraps the conditional-generation model, which adds one ``.model``
+        # level. Unwrap it first so this resolves to Qwen3_5Model both with and
+        # without a LoRA adapter.
+        vlm = self.vlm
+        get_base_model = getattr(vlm, "get_base_model", None)
+        if callable(get_base_model):
+            vlm = get_base_model()
+        backbone = getattr(vlm, "model", vlm)
+        rope_index = getattr(backbone, "get_rope_index", None)
+        if not callable(rope_index):
+            raise AttributeError(
+                f"{type(backbone).__name__} does not expose get_rope_index()"
+            )
+        positions, _ = rope_index(
             input_ids,
             mm_token_type_ids=self._modality_ids(input_ids),
             image_grid_thw=image_grid_thw,
@@ -403,7 +430,16 @@ class QwenDriveForPlanning(PreTrainedModel):
         :data:`VQA_DECODE_DEFAULTS`); pass any of those keys to override.
         """
         processor = self.processor
-        inputs = processor.encode_vqa(images, question, device=self.device)
+        # Keep image sizing separate from transformers.generate kwargs.  This is useful for
+        # repeated VQA evaluation where six full-resolution DriveLM views otherwise consume
+        # considerably more memory than the training protocol.
+        image_pixel_budget = generate_kwargs.pop("image_pixel_budget", None)
+        inputs = processor.encode_vqa(
+            images,
+            question,
+            image_pixel_budget=image_pixel_budget,
+            device=self.device,
+        )
         params = dict(VQA_DECODE_DEFAULTS)
         params.update(generate_kwargs)
         seed = params.pop("seed", None)

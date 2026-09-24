@@ -27,8 +27,17 @@ import json
 import sys
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:  # pragma: no cover - depends on the environment
+        tomllib = None
+
 import torch
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -37,13 +46,92 @@ from qwen_drive import QwenDriveForPlanning
 from qwen_drive.benchmarks import BenchmarkSample, read_scene_file
 from qwen_drive.images import ImageArchive
 from qwen_drive.trajectory import normalize_history, normalize_trajectory
-from qwen_drive.training import make_flow_batch, masked_endpoint_mse, prefill_frozen_vlm
+from qwen_drive.training import make_flow_batch, masked_endpoint_mse, prefill_conditioned_vlm
 
 DTYPES = {
     "bfloat16": torch.bfloat16,
     "float16": torch.float16,
     "float32": torch.float32,
 }
+
+ATTENTION_IMPLEMENTATIONS = {"sdpa", "flash_attention_2"}
+CONFIG_KEYS = {
+    "model",
+    "planner",
+    "lora_adapter",
+    "scenes",
+    "output",
+    "val_scenes",
+    "image_root",
+    "image_archive",
+    "val_image_root",
+    "val_image_archive",
+    "epochs",
+    "batch_size",
+    "gradient_accumulation_steps",
+    "learning_rate",
+    "weight_decay",
+    "warmup_steps",
+    "max_grad_norm",
+    "limit",
+    "val_limit",
+    "resume",
+    "seed",
+    "device",
+    "dtype",
+    "attn_implementation",
+    "conditioning_mode",
+    "max_reasoning_tokens",
+}
+
+DEFAULTS = {
+    "planner": None,
+    "lora_adapter": None,
+    "val_scenes": None,
+    "image_root": None,
+    "image_archive": None,
+    "val_image_root": None,
+    "val_image_archive": None,
+    "epochs": 1,
+    "batch_size": 1,
+    "gradient_accumulation_steps": 1,
+    "learning_rate": 1e-5,
+    "weight_decay": 0.01,
+    "warmup_steps": 0,
+    "max_grad_norm": 1.0,
+    "limit": None,
+    "val_limit": None,
+    "resume": None,
+    "seed": 3407,
+    "device": "cuda",
+    "dtype": "bfloat16",
+    "attn_implementation": "sdpa",
+    "conditioning_mode": "direct",
+    "max_reasoning_tokens": None,
+}
+
+
+def load_training_config(path: str | Path) -> dict:
+    """Load a TOML training config, accepting either [training] or top-level keys."""
+    if tomllib is None:
+        raise RuntimeError(
+            "TOML config support requires Python 3.11+ or the 'tomli' package; "
+            "install tomli or run without --config"
+        )
+    path = Path(path)
+    try:
+        with path.open("rb") as handle:
+            payload = tomllib.load(handle)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"training config does not exist: {path}") from exc
+    if "training" in payload:
+        payload = payload["training"]
+    if not isinstance(payload, dict):
+        raise ValueError("training config must contain a [training] table")
+    unknown = sorted(set(payload) - CONFIG_KEYS)
+    if unknown:
+        raise ValueError(f"unknown training config key(s): {', '.join(unknown)}")
+    return dict(payload)
 
 
 class SceneDataset(Dataset):
@@ -60,35 +148,81 @@ class SceneDataset(Dataset):
 
 
 def parse_args() -> argparse.Namespace:
+    bootstrap = argparse.ArgumentParser(add_help=False)
+    bootstrap.add_argument("--config", type=Path, default=None)
+    bootstrap_args, _ = bootstrap.parse_known_args()
+    config_defaults = (
+        load_training_config(bootstrap_args.config) if bootstrap_args.config is not None else {}
+    )
+
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", required=True, help="directory containing the full VLM")
     parser.add_argument(
-        "--planner", default=None, help="optional initial Planning Expert directory"
+        "--config",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="optional TOML config file; command-line values override it",
     )
-    parser.add_argument("--scenes", required=True, help="training scene JSONL file")
-    parser.add_argument("--output", required=True, help="planner checkpoint directory")
-    parser.add_argument("--val-scenes", default=None, help="optional validation scene JSONL file")
-    parser.add_argument("--image-root", default=None)
-    parser.add_argument("--image-archive", default=None)
-    parser.add_argument("--val-image-root", default=None)
-    parser.add_argument("--val-image-archive", default=None)
-    parser.add_argument("--epochs", type=int, default=1)
-    parser.add_argument("--batch-size", type=int, default=1, help="must remain 1 for this trainer")
-    parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
-    parser.add_argument("--learning-rate", type=float, default=1e-5)
-    parser.add_argument("--weight-decay", type=float, default=0.01)
-    parser.add_argument("--warmup-steps", type=int, default=0)
-    parser.add_argument("--max-grad-norm", type=float, default=1.0)
-    parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--val-limit", type=int, default=None)
-    parser.add_argument("--resume", default=None, help="checkpoint directory to resume")
-    parser.add_argument("--seed", type=int, default=3407)
-    parser.add_argument("--device", default="cuda")
-    parser.add_argument("--dtype", choices=sorted(DTYPES), default="bfloat16")
+    parser.add_argument("--model", default=argparse.SUPPRESS, help="directory containing the full VLM")
     parser.add_argument(
-        "--attn-implementation", choices=["sdpa", "flash_attention_2"], default="sdpa"
+        "--planner", default=argparse.SUPPRESS, help="optional initial Planning Expert directory"
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--lora-adapter",
+        default=argparse.SUPPRESS,
+        help="optional frozen PEFT VLM adapter to use during Planning Expert training",
+    )
+    parser.add_argument("--scenes", default=argparse.SUPPRESS, help="training scene JSONL file")
+    parser.add_argument("--output", default=argparse.SUPPRESS, help="planner checkpoint directory")
+    parser.add_argument("--val-scenes", default=argparse.SUPPRESS, help="optional validation scene JSONL file")
+    parser.add_argument("--image-root", default=argparse.SUPPRESS)
+    parser.add_argument("--image-archive", default=argparse.SUPPRESS)
+    parser.add_argument("--val-image-root", default=argparse.SUPPRESS)
+    parser.add_argument("--val-image-archive", default=argparse.SUPPRESS)
+    parser.add_argument("--epochs", type=int, default=argparse.SUPPRESS)
+    parser.add_argument("--batch-size", type=int, default=argparse.SUPPRESS, help="must remain 1 for this trainer")
+    parser.add_argument("--gradient-accumulation-steps", type=int, default=argparse.SUPPRESS)
+    parser.add_argument("--learning-rate", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--weight-decay", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--warmup-steps", type=int, default=argparse.SUPPRESS)
+    parser.add_argument("--max-grad-norm", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--limit", type=int, default=argparse.SUPPRESS)
+    parser.add_argument("--val-limit", type=int, default=argparse.SUPPRESS)
+    parser.add_argument("--resume", default=argparse.SUPPRESS, help="checkpoint directory to resume")
+    parser.add_argument("--seed", type=int, default=argparse.SUPPRESS)
+    parser.add_argument("--device", default=argparse.SUPPRESS)
+    parser.add_argument("--dtype", choices=sorted(DTYPES), default=argparse.SUPPRESS)
+    parser.add_argument(
+        "--attn-implementation",
+        choices=sorted(ATTENTION_IMPLEMENTATIONS),
+        default=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--conditioning-mode",
+        choices=("direct", "reasoning"),
+        default=argparse.SUPPRESS,
+        help="VLM cache used to train the expert; reasoning is greedily generated without labels",
+    )
+    parser.add_argument(
+        "--max-reasoning-tokens",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="generation cap for reasoning mode (defaults to the model config)",
+    )
+    parser.set_defaults(config=bootstrap_args.config, **DEFAULTS)
+    parser.set_defaults(**config_defaults)
+    args = parser.parse_args()
+
+    missing = [name for name in ("model", "scenes", "output") if not getattr(args, name, None)]
+    if missing:
+        parser.error("the following arguments are required (directly or in --config): " + ", ".join(missing))
+    if args.dtype not in DTYPES:
+        parser.error(f"unsupported dtype: {args.dtype}")
+    if args.attn_implementation not in ATTENTION_IMPLEMENTATIONS:
+        parser.error(f"unsupported attention implementation: {args.attn_implementation}")
+    if args.conditioning_mode == "reasoning" and args.max_reasoning_tokens is not None:
+        if args.max_reasoning_tokens < 1:
+            parser.error("--max-reasoning-tokens must be positive")
+    return args
 
 
 def _image_root(path: str, explicit: str | None, archive: str | None) -> str | None:
@@ -131,6 +265,8 @@ def make_training_record(
     model,
     device: torch.device,
     training: bool,
+    conditioning_mode: str = "direct",
+    max_reasoning_tokens: int | None = None,
 ) -> dict:
     if sample.future_trajectory is None or sample.future_valid is None:
         raise ValueError(f"scene {sample.token!r} has no future trajectory or validity mask")
@@ -148,8 +284,21 @@ def make_training_record(
     if not bool(valid.any()):
         raise ValueError(f"scene {sample.token!r} has no valid future waypoints")
 
-    inputs = move_inputs(model.processor(sample.scene, device="cpu"), device)
-    scene_cache, anchor = prefill_frozen_vlm(model, inputs)
+    inputs = move_inputs(
+        model.processor(
+            sample.scene,
+            with_reasoning=conditioning_mode == "reasoning",
+            device="cpu",
+        ),
+        device,
+    )
+    generation_cap = max_reasoning_tokens or model.config.max_reasoning_tokens
+    scene_cache, anchor, reasoning = prefill_conditioned_vlm(
+        model,
+        inputs,
+        conditioning_mode=conditioning_mode,
+        max_reasoning_tokens=generation_cap if conditioning_mode == "reasoning" else None,
+    )
     scale = model.trajectory_scale(device)
     target = normalize_trajectory(future.unsqueeze(0), scale)
     history = normalize_history(inputs["history"].float(), scale)
@@ -174,6 +323,7 @@ def make_training_record(
         "noisy": noisy,
         "flow_time": flow_time,
         "valid": valid.unsqueeze(0),
+        "reasoning": reasoning,
     }
 
 
@@ -215,12 +365,38 @@ def save_checkpoint(model, optimizer, scheduler, output: Path, state: dict) -> N
     )
 
 
-def evaluate(model, loader, device: torch.device) -> float:
+def evaluate(
+    model,
+    loader,
+    device: torch.device,
+    *,
+    conditioning_mode: str,
+    max_reasoning_tokens: int | None,
+    desc: str = "validation",
+) -> float:
     losses = []
     with torch.no_grad():
-        for sample in loader:
-            record = make_training_record(sample, model, device, training=False)
-            losses.append(float(record_loss(model.planning_expert, record)))
+        progress = tqdm(
+            loader,
+            total=len(loader),
+            desc=desc,
+            unit="scene",
+            dynamic_ncols=True,
+            leave=False,
+            file=sys.stdout,
+        )
+        for sample in progress:
+            record = make_training_record(
+                sample,
+                model,
+                device,
+                training=False,
+                conditioning_mode=conditioning_mode,
+                max_reasoning_tokens=max_reasoning_tokens,
+            )
+            loss = float(record_loss(model.planning_expert, record))
+            losses.append(loss)
+            progress.set_postfix(loss=f"{loss:.6f}")
     return sum(losses) / len(losses)
 
 
@@ -240,6 +416,7 @@ def main() -> None:
     model = QwenDriveForPlanning.from_pretrained(
         args.model,
         planner=args.planner,
+        lora_adapter=args.lora_adapter,
         dtype=DTYPES[args.dtype],
         attn_implementation=args.attn_implementation,
     ).to(device)
@@ -247,6 +424,18 @@ def main() -> None:
     model.vlm.eval()
     model.planning_expert.train()
 
+    print(
+        f"conditioning mode: {args.conditioning_mode}"
+        + (
+            f" (max reasoning tokens={args.max_reasoning_tokens or model.config.max_reasoning_tokens})"
+            if args.conditioning_mode == "reasoning"
+            else ""),
+        flush=True,
+    )
+    print(
+        f"loading train scenes (limit={args.limit or 'all'}): {args.scenes}",
+        flush=True,
+    )
     train_samples = load_samples(
         args.scenes,
         args.image_root,
@@ -254,8 +443,13 @@ def main() -> None:
         model.config.num_history_points,
         args.limit,
     )
+    print(f"loaded {len(train_samples)} train scenes", flush=True)
     val_samples = None
     if args.val_scenes:
+        print(
+            f"loading validation scenes (limit={args.val_limit or 'all'}): {args.val_scenes}",
+            flush=True,
+        )
         val_samples = load_samples(
             args.val_scenes,
             args.val_image_root,
@@ -263,6 +457,7 @@ def main() -> None:
             model.config.num_history_points,
             args.val_limit,
         )
+        print(f"loaded {len(val_samples)} validation scenes", flush=True)
     train_loader = DataLoader(SceneDataset(train_samples), batch_size=1, collate_fn=lambda x: x[0])
     val_loader = (
         None
@@ -300,8 +495,29 @@ def main() -> None:
         model.planning_expert.train()
         optimizer.zero_grad(set_to_none=True)
         running = []
-        for index, sample in enumerate(train_loader):
-            record = make_training_record(sample, model, device, training=True)
+        progress = tqdm(
+            train_loader,
+            total=len(train_loader),
+            desc=f"epoch {epoch + 1}/{args.epochs} train",
+            unit="scene",
+            dynamic_ncols=True,
+            file=sys.stdout,
+        )
+        for index, sample in enumerate(progress):
+            record = make_training_record(
+                sample,
+                model,
+                device,
+                training=True,
+                conditioning_mode=args.conditioning_mode,
+                max_reasoning_tokens=args.max_reasoning_tokens,
+            )
+            if args.conditioning_mode == "reasoning" and index == 0:
+                print(
+                    f"sample generated reasoning [{record['token']}]: "
+                    f"{record['reasoning'] or '<empty>'}",
+                    flush=True,
+                )
             loss = record_loss(model.planning_expert, record)
             (loss / args.gradient_accumulation_steps).backward()
             if any(parameter.grad is not None for parameter in model.vlm.parameters()):
@@ -319,11 +535,19 @@ def main() -> None:
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
                 global_step += 1
+            progress.set_postfix(loss=f"{float(loss.detach()):.6f}", step=global_step)
         train_loss = sum(running) / len(running)
         message = f"epoch {epoch + 1}/{args.epochs}: train_loss={train_loss:.6f}"
         if val_loader is not None:
             model.planning_expert.eval()
-            val_loss = evaluate(model, val_loader, device)
+            val_loss = evaluate(
+                model,
+                val_loader,
+                device,
+                conditioning_mode=args.conditioning_mode,
+                max_reasoning_tokens=args.max_reasoning_tokens,
+                desc=f"epoch {epoch + 1}/{args.epochs} val",
+            )
             message += f" val_loss={val_loss:.6f}"
         print(message, flush=True)
         save_checkpoint(

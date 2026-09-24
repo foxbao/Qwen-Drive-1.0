@@ -27,7 +27,12 @@ from typing import Optional
 
 import torch
 
-__all__ = ["make_flow_batch", "masked_endpoint_mse", "prefill_frozen_vlm"]
+__all__ = [
+    "make_flow_batch",
+    "masked_endpoint_mse",
+    "prefill_frozen_vlm",
+    "prefill_conditioned_vlm",
+]
 
 
 def prefill_frozen_vlm(model, inputs: dict[str, torch.Tensor]) -> tuple[list, torch.Tensor]:
@@ -58,6 +63,46 @@ def prefill_frozen_vlm(model, inputs: dict[str, torch.Tensor]) -> tuple[list, to
 
     detached_cache = [(key.detach(), value.detach()) for key, value in scene_cache]
     return detached_cache, position_anchor.detach()
+
+
+def prefill_conditioned_vlm(
+    model,
+    inputs: dict[str, torch.Tensor],
+    *,
+    conditioning_mode: str = "direct",
+    max_reasoning_tokens: int | None = None,
+) -> tuple[list, torch.Tensor, str | None]:
+    """Build a detached VLM cache matching either direct or reasoning inference.
+
+    In reasoning mode the frozen VLM greedily generates its one-sentence rationale and
+    the Planning Expert is trained against the resulting cache. The rationale itself is
+    not supervised by this trajectory loss; this establishes reasoning-conditioned
+    planner SFT without pretending that NAVSIM supplies rationale labels.
+    """
+    if conditioning_mode == "direct":
+        scene_cache, anchor = prefill_frozen_vlm(model, inputs)
+        return scene_cache, anchor, None
+    if conditioning_mode != "reasoning":
+        raise ValueError(
+            f"conditioning_mode must be 'direct' or 'reasoning', got {conditioning_mode!r}"
+        )
+    if max_reasoning_tokens is None or max_reasoning_tokens < 1:
+        raise ValueError("reasoning conditioning requires max_reasoning_tokens >= 1")
+
+    required = ("input_ids", "pixel_values", "image_grid_thw")
+    missing = [name for name in required if name not in inputs]
+    if missing:
+        raise KeyError(f"missing VLM inputs: {', '.join(missing)}")
+
+    # This method follows the exact generation-and-cache extension used by inference.
+    # It is intentionally no-grad: VLM/LoRA optimization is a separate training mode.
+    with torch.no_grad():
+        model.vlm.eval()
+        scene_cache, anchor, reasoning = model._prefill_with_reasoning(
+            inputs, max_reasoning_tokens
+        )
+    detached_cache = [(key.detach(), value.detach()) for key, value in scene_cache]
+    return detached_cache, anchor.detach(), reasoning
 
 
 def make_flow_batch(

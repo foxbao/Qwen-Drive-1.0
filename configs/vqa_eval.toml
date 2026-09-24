@@ -1,0 +1,32 @@
+# Held-out VQA evaluation.  Prediction JSONL files are resumable.
+
+[evaluation]
+datasets = ["aokvqa", "drivelm"]
+device = "cuda:0"
+dtype = "bfloat16"
+attn_implementation = "sdpa"
+vqa_image_pixels = 230400
+max_new_tokens = 64
+temperature = 0.01
+top_k = 1
+top_p = 0.001
+repetition_penalty = 1.0
+presence_penalty = 0.0
+seed = 3407
+
+[data]
+drivelm_annotations = "/home/baojiali/Downloads/qwen-drive/datasets/drivelm_nuscenes/annotations/v1_0_train_nus.json"
+drivelm_validation_fraction = 0.05
+aok_val_annotations = "/home/baojiali/Downloads/qwen-drive/datasets/aokvqa/annotations/aokvqa_v1p0_val.json"
+aok_val_images = "/home/baojiali/Downloads/qwen-drive/datasets/aokvqa/coco_images/val2017"
+
+[[models]]
+name = "base"
+model = "Qwen-Drive-1.0-4B"
+output = "outputs/vqa-base"
+
+[[models]]
+name = "vlm-lora-pilot-200"
+model = "Qwen-Drive-1.0-4B"
+lora_adapter = "outputs/vlm-lora-multitask-pilot-200/lora_adapter"
+output = "outputs/vqa-vlm-lora-pilot-200"

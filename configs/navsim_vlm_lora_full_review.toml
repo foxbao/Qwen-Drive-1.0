@@ -1,0 +1,20 @@
+# Full validation comparison for the 200-step shared VLM LoRA pilot.
+
+[review]
+output = "outputs/navsim-vlm-lora-full-review"
+top_k = 12
+tie_tolerance = 0.000001
+
+[[review.experiments]]
+name = "lora-vs-planner-sft"
+baseline_name = "planner-sft"
+updated_name = "vlm-lora-multitask-200"
+baseline = "outputs/navsim-val-sft-baseline/predictions.jsonl"
+updated = "outputs/navsim-val-vlm-lora-full/predictions.jsonl"
+
+[[review.experiments]]
+name = "lora-vs-navsim-full-ft"
+baseline_name = "navsim-full-direct-ft"
+updated_name = "vlm-lora-multitask-200"
+baseline = "outputs/navsim-val-direct/predictions.jsonl"
+updated = "outputs/navsim-val-vlm-lora-full/predictions.jsonl"

@@ -1,0 +1,20 @@
+# Paired 100-scene open-loop comparisons for the 200-step VLM LoRA pilot.
+
+[review]
+output = "outputs/navsim-vlm-lora-pilot-100-review"
+top_k = 12
+tie_tolerance = 0.000001
+
+[[review.experiments]]
+name = "lora-vs-planner-sft"
+baseline_name = "planner-sft"
+updated_name = "vlm-lora-multitask-200"
+baseline = "outputs/navsim-val-sft-baseline/predictions.jsonl"
+updated = "outputs/navsim-vlm-lora-pilot-100/predictions.jsonl"
+
+[[review.experiments]]
+name = "lora-vs-navsim-full-ft"
+baseline_name = "navsim-full-direct-ft"
+updated_name = "vlm-lora-multitask-200"
+baseline = "outputs/navsim-val-direct/predictions.jsonl"
+updated = "outputs/navsim-vlm-lora-pilot-100/predictions.jsonl"

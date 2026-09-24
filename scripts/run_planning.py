@@ -108,6 +108,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True, help="Qwen-Drive-1.0-4B directory")
     parser.add_argument("--planner", default=None, help="Planning Expert weights directory")
+    parser.add_argument("--lora-adapter", default=None, help="optional PEFT LoRA adapter directory")
     parser.add_argument("--scenes", required=True, help="benchmark scene file (jsonl)")
     parser.add_argument("--output", required=True, help="destination predictions file (jsonl)")
     parser.add_argument(
@@ -166,6 +167,7 @@ def main() -> None:
     model = QwenDriveForPlanning.from_pretrained(
         args.model,
         planner=args.planner,
+        lora_adapter=args.lora_adapter,
         dtype=DTYPES[args.dtype],
         attn_implementation=args.attn_implementation,
     )

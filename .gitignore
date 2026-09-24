@@ -1,6 +1,11 @@
 # Local model weights and generated predictions.
 models/
 outputs/
+Qwen-Drive-1.0-4B/
+
+# Local build/install artifacts and generated demo assets.
+src/qwen_drive.egg-info/
+demo.png
 
 # Python and local tooling artifacts.
 __pycache__/

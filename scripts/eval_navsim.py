@@ -37,6 +37,14 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:  # pragma: no cover - depends on the environment
+        tomllib = None
+
 import numpy as np
 from tqdm import tqdm
 
@@ -52,6 +60,31 @@ PDM_FIELDS = (
     "driving_direction_compliance",
     "score",
 )
+
+CONFIG_KEYS = {"predictions", "metric_cache", "output"}
+
+
+def load_eval_config(path: str | Path) -> dict:
+    """Load a TOML evaluation config, accepting either [evaluation] or top-level keys."""
+    if tomllib is None:
+        raise RuntimeError(
+            "TOML config support requires Python 3.11+ or the 'tomli' package; "
+            "install tomli or run without --config"
+        )
+    path = Path(path)
+    try:
+        with path.open("rb") as handle:
+            payload = tomllib.load(handle)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"evaluation config does not exist: {path}") from exc
+    if "evaluation" in payload:
+        payload = payload["evaluation"]
+    if not isinstance(payload, dict):
+        raise ValueError("evaluation config must contain an [evaluation] table")
+    unknown = sorted(set(payload) - CONFIG_KEYS)
+    if unknown:
+        raise ValueError(f"unknown evaluation config key(s): {', '.join(unknown)}")
+    return dict(payload)
 
 
 def load_predictions(path: Path) -> list[dict]:
@@ -119,11 +152,36 @@ def pdm_report(records: list[dict], metric_cache: Path) -> dict[str, float]:
 
 
 def main() -> None:
+    bootstrap = argparse.ArgumentParser(add_help=False)
+    bootstrap.add_argument("--config", type=Path, default=None)
+    bootstrap_args, _ = bootstrap.parse_known_args()
+    config_defaults = (
+        load_eval_config(bootstrap_args.config) if bootstrap_args.config is not None else {}
+    )
+
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--predictions", required=True, type=Path)
-    parser.add_argument("--metric-cache", type=Path, default=None, help="NAVSIM metric cache root")
-    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="optional TOML config file; command-line values override it",
+    )
+    parser.add_argument("--predictions", type=Path, default=argparse.SUPPRESS)
+    parser.add_argument(
+        "--metric-cache", type=Path, default=argparse.SUPPRESS, help="NAVSIM metric cache root"
+    )
+    parser.add_argument("--output", type=Path, default=argparse.SUPPRESS)
+    parser.set_defaults(config=bootstrap_args.config, metric_cache=None, output=None)
+    parser.set_defaults(**config_defaults)
     args = parser.parse_args()
+
+    if not getattr(args, "predictions", None):
+        parser.error("the following argument is required (directly or in --config): predictions")
+    args.predictions = Path(args.predictions)
+    if args.metric_cache:
+        args.metric_cache = Path(args.metric_cache)
+    if args.output:
+        args.output = Path(args.output)
 
     records = load_predictions(args.predictions)
     metrics = displacement_report(records)

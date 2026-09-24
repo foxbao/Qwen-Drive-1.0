@@ -1,0 +1,14 @@
+# Compare the 100-scene reasoning-conditioned planner pilot against the original
+# planner-sft checkpoint under the same reasoning_planning inference mode.
+
+[review]
+output = "outputs/navsim-reasoning-pilot-100-review"
+top_k = 12
+tie_tolerance = 0.000001
+
+[[review.experiments]]
+name = "reasoning-pilot-100"
+baseline_name = "planner-sft-reasoning"
+updated_name = "reasoning-pilot-100"
+baseline = "outputs/navsim-val-reasoning-sft-baseline/predictions.jsonl"
+updated = "outputs/navsim-reasoning-pilot-100/predictions.jsonl"

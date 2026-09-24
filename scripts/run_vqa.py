@@ -37,6 +37,7 @@ DTYPES = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True)
+    parser.add_argument("--lora-adapter", default=None, help="optional PEFT LoRA adapter directory")
     parser.add_argument("--image", action="append", required=True, help="image path; repeatable")
     parser.add_argument("--question", required=True)
     parser.add_argument("--max-new-tokens", type=int, default=32768)
@@ -51,7 +52,10 @@ def main() -> None:
     args = parser.parse_args()
 
     model = QwenDriveForPlanning.from_pretrained(
-        args.model, dtype=DTYPES[args.dtype], attn_implementation="sdpa"
+        args.model,
+        lora_adapter=args.lora_adapter,
+        dtype=DTYPES[args.dtype],
+        attn_implementation="sdpa",
     )
     model = model.to(args.device).eval()
 

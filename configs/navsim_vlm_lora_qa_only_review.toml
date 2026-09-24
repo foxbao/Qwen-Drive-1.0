@@ -1,0 +1,27 @@
+# Paired review for the QA-only VLM LoRA experiment.
+
+[review]
+output = "outputs/navsim-vlm-lora-qa-only-review"
+top_k = 12
+tie_tolerance = 0.000001
+
+[[review.experiments]]
+name = "qa-only-vs-planner-sft"
+baseline_name = "planner-sft"
+updated_name = "qa-only-vlm-lora"
+baseline = "outputs/navsim-val-sft-baseline/predictions.jsonl"
+updated = "outputs/navsim-val-vlm-lora-qa-only/predictions.jsonl"
+
+[[review.experiments]]
+name = "qa-only-vs-navsim-only"
+baseline_name = "navsim-only-vlm-lora"
+updated_name = "qa-only-vlm-lora"
+baseline = "outputs/navsim-val-vlm-lora-navsim-only/predictions.jsonl"
+updated = "outputs/navsim-val-vlm-lora-qa-only/predictions.jsonl"
+
+[[review.experiments]]
+name = "qa-only-vs-joint-multitask"
+baseline_name = "joint-vlm-lora"
+updated_name = "qa-only-vlm-lora"
+baseline = "outputs/navsim-val-vlm-lora-full/predictions.jsonl"
+updated = "outputs/navsim-val-vlm-lora-qa-only/predictions.jsonl"

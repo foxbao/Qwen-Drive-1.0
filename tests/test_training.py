@@ -18,7 +18,11 @@ import unittest
 
 import torch
 
-from qwen_drive.training import make_flow_batch, masked_endpoint_mse
+from qwen_drive.training import (
+    make_flow_batch,
+    masked_endpoint_mse,
+    prefill_conditioned_vlm,
+)
 
 
 class TrainingHelpersTest(unittest.TestCase):
@@ -58,6 +62,43 @@ class TrainingHelpersTest(unittest.TestCase):
         loss = masked_endpoint_mse(prediction, target, torch.tensor([[1, 0]]))
         self.assertAlmostEqual(float(loss), 1.0 / 3.0, places=6)
         self.assertTrue(torch.isfinite(loss))
+
+    def test_reasoning_prefill_uses_inference_cache_and_detaches_it(self) -> None:
+        class FakeVLM:
+            def eval(self):
+                return self
+
+        class FakeModel:
+            vlm = FakeVLM()
+
+            def _prefill_with_reasoning(self, inputs, max_new_tokens):
+                self.inputs = inputs
+                self.max_new_tokens = max_new_tokens
+                cache = [(torch.ones(1, requires_grad=True), torch.ones(1, requires_grad=True))]
+                anchor = torch.zeros(1, 1, 1, requires_grad=True)
+                return cache, anchor, "yield to the pedestrian"
+
+        model = FakeModel()
+        inputs = {
+            "input_ids": torch.zeros(1, 2, dtype=torch.long),
+            "pixel_values": torch.zeros(1, 3),
+            "image_grid_thw": torch.ones(1, 3, dtype=torch.long),
+        }
+        cache, anchor, reasoning = prefill_conditioned_vlm(
+            model,
+            inputs,
+            conditioning_mode="reasoning",
+            max_reasoning_tokens=64,
+        )
+        self.assertEqual(model.max_new_tokens, 64)
+        self.assertEqual(reasoning, "yield to the pedestrian")
+        self.assertFalse(cache[0][0].requires_grad)
+        self.assertFalse(cache[0][1].requires_grad)
+        self.assertFalse(anchor.requires_grad)
+
+    def test_reasoning_prefill_requires_positive_token_cap(self) -> None:
+        with self.assertRaisesRegex(ValueError, "max_reasoning_tokens"):
+            prefill_conditioned_vlm(object(), {}, conditioning_mode="reasoning")
 
 
 if __name__ == "__main__":
